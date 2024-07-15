@@ -1,0 +1,655 @@
+---
+title: Understanding HTTPDomainSummaryPage
+---
+# HTTPDomainSummaryPage Overview
+
+The HTTPDomainSummaryPage is a key component in the Sentry application. It is responsible for rendering the HTTP Domain Summary Page, which provides a detailed overview of HTTP domain metrics. This includes throughput data, duration data, response code data, and a list of transactions.
+
+# Data Fetching and Processing
+
+To fetch and process the necessary data for the page, HTTPDomainSummaryPage uses several hooks and functions. These include `useSpanMetrics`, `useProjects`, and `useDiscover`. These hooks fetch span metrics data and project data, which are then processed and used to render the page.
+
+# Data Flow
+
+The data flow starts with the `HTTPDomainSummaryPage` function, which uses the `useSpanMetrics` and `useProjects` hooks to fetch the necessary data. The `useSpanMetrics` hook internally uses the `useDiscover` hook with the `DiscoverDatasets.SPANS_METRICS` dataset. The `useProjects` hook fetches projects data and provides a way to select specific project slugs, and search for more projects that may not be in the project store.
+
+# API Requests
+
+The data fetching process involves making API requests to fetch the necessary data. The `doDiscoverQuery` function is used to make these API requests. If query batching is enabled, it uses the `batchRequest` function to make the request. Otherwise, it makes the request directly using the `api.requestPromise` method.
+
+```mermaid
+graph TD;
+subgraph static/app/views/insights/common/queries
+  HTTPDomainSummaryPage:::mainFlowStyle --> useSpanMetrics
+end
+subgraph static/app/utils
+  HTTPDomainSummaryPage:::mainFlowStyle --> useProjects
+end
+subgraph static/app/views/insights/common/queries
+  HTTPDomainSummaryPage:::mainFlowStyle --> useSpanMetricsSeries:::mainFlowStyle
+end
+subgraph static/app/views/insights/common/queries
+  useSpanMetricsSeries:::mainFlowStyle --> useDiscoverSeries:::mainFlowStyle
+end
+subgraph static/app/views/insights/common/queries
+  useDiscoverSeries:::mainFlowStyle --> getSeriesEventView
+end
+subgraph static/app/views/insights/common/queries
+  useDiscoverSeries:::mainFlowStyle --> useWrappedDiscoverTimeseriesQuery:::mainFlowStyle
+end
+subgraph static/app/utils
+  useWrappedDiscoverTimeseriesQuery:::mainFlowStyle --> useGenericDiscoverQuery:::mainFlowStyle
+end
+subgraph static/app/utils
+  useGenericDiscoverQuery:::mainFlowStyle --> doDiscoverQuery
+end
+subgraph static/app/utils
+  useGenericDiscoverQuery:::mainFlowStyle --> getPayload:::mainFlowStyle
+end
+
+classDef mainFlowStyle color:#000000,fill:#7CB9F4
+classDef rootsStyle color:#000000,fill:#00FFF4
+classDef Style1 color:#000000,fill:#00FFAA
+classDef Style2 color:#000000,fill:#FFFF00
+classDef Style3 color:#000000,fill:#AA7CB9
+```
+
+# Flow drill down
+
+First, we'll zoom into this section of the flow:
+
+```mermaid
+graph TD;
+subgraph static/app/views/insights/common/queries
+  HTTPDomainSummaryPage:::mainFlowStyle --> useSpanMetrics
+end
+subgraph static/app/utils/useProjects.tsx
+  HTTPDomainSummaryPage:::mainFlowStyle --> useProjects
+end
+subgraph static/app/views/insights/common/queries
+  HTTPDomainSummaryPage:::mainFlowStyle --> useSpanMetricsSeries:::mainFlowStyle
+end
+subgraph static/app/views/insights/common/queries
+  useSpanMetricsSeries:::mainFlowStyle --> 0mv9h[...]
+end
+subgraph static/app/utils/useProjects.tsx
+  useProjects --> loadProjectsBySlug
+end
+subgraph static/app/utils/useProjects.tsx
+  useProjects --> fetchProjects
+end
+subgraph static/app/views/insights/common/queries
+  useSpanMetrics --> useDiscover
+end
+
+classDef mainFlowStyle color:#000000,fill:#7CB9F4
+classDef rootsStyle color:#000000,fill:#00FFF4
+classDef Style1 color:#000000,fill:#00FFAA
+classDef Style2 color:#000000,fill:#FFFF00
+classDef Style3 color:#000000,fill:#AA7CB9
+```
+
+<SwmSnippet path="/static/app/views/insights/http/views/httpDomainSummaryPage.tsx" line="62">
+
+---
+
+# HTTPDomainSummaryPage Function
+
+The `HTTPDomainSummaryPage` function is a React component that renders the HTTP Domain Summary Page. It uses several hooks and functions to fetch and process the data needed for the page. The data includes domain metrics, throughput data, duration data, response code data, and transactions list. The function also synchronizes charts and sets up breadcrumbs for the page.
+
+```tsx
+export function HTTPDomainSummaryPage() {
+  const location = useLocation<Query>();
+  const {projects} = useProjects();
+
+  // TODO: Fetch sort information using `useLocationQuery`
+  const sortField = decodeScalar(location.query?.[QueryParameterNames.TRANSACTIONS_SORT]);
+
+  const sort = decodeSorts(sortField).filter(isAValidSort).at(0) ?? DEFAULT_SORT;
+
+  const {domain, project: projectId} = useLocationQuery({
+    fields: {
+      project: decodeScalar,
+      domain: decodeScalar,
+    },
+  });
+
+  const project = projects.find(p => projectId === p.id);
+  const filters: SpanMetricsQueryFilters = {
+    ...BASE_FILTERS,
+    'span.domain': domain === '' ? EMPTY_OPTION_VALUE : escapeFilterValue(domain),
+  };
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/views/insights/common/queries/useDiscover.ts" line="38">
+
+---
+
+# useSpanMetrics Hook
+
+The `useSpanMetrics` hook is used within the `HTTPDomainSummaryPage` function to fetch span metrics data. It uses the `useDiscover` hook internally with the `DiscoverDatasets.SPANS_METRICS` dataset.
+
+```typescript
+export const useSpanMetrics = <Fields extends SpanMetricsProperty[]>(
+  options: UseMetricsOptions<Fields> = {},
+  referrer: string
+) => {
+  return useDiscover<Fields, SpanMetricsResponse>(
+    options,
+    DiscoverDatasets.SPANS_METRICS,
+    referrer
+  );
+};
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/useProjects.tsx" line="141">
+
+---
+
+# useProjects Hook
+
+The `useProjects` hook is used within the `HTTPDomainSummaryPage` function to fetch projects data. It provides projects from the ProjectsStore and also provides a way to select specific project slugs, and search (type-ahead) for more projects that may not be in the project store.
+
+```tsx
+/**
+ * Provides projects from the ProjectsStore
+ *
+ * This hook also provides a way to select specific project slugs, and search
+ * (type-ahead) for more projects that may not be in the project store.
+ *
+ * NOTE: Currently ALL projects are always loaded, but this hook is designed
+ * for future-compat in a world where we do _not_ load all projects.
+ */
+function useProjects({limit, slugs, orgId: propOrgId}: Options = {}) {
+  const api = useApi();
+
+  const organization = useOrganization({allowNull: true});
+  const store = useLegacyStore(ProjectsStore);
+
+  const orgId = propOrgId ?? organization?.slug ?? organization?.slug;
+
+  const storeSlugs = new Set(store.projects.map(t => t.slug));
+  const slugsToLoad = slugs?.filter(slug => !storeSlugs.has(slug)) ?? [];
+  const shouldLoadSlugs = slugsToLoad.length > 0;
+
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/useProjects.tsx" line="188">
+
+---
+
+# loadProjectsBySlug Function
+
+The `loadProjectsBySlug` function is used within the `useProjects` hook to load projects by their slugs. It fetches projects using the `fetchProjects` function and updates the ProjectsStore with the fetched projects.
+
+```tsx
+  async function loadProjectsBySlug() {
+    if (orgId === undefined) {
+      // eslint-disable-next-line no-console
+      console.error('Cannot use useProjects({slugs}) without an organization in context');
+      return;
+    }
+
+    setState(prev => ({...prev, fetching: true}));
+    try {
+      const {results, hasMore, nextCursor} = await fetchProjects(api, orgId, {
+        slugs: slugsToLoad,
+        limit,
+      });
+
+      const fetchedProjects = uniqBy([...store.projects, ...results], ({slug}) => slug);
+      ProjectsStore.loadInitialData(fetchedProjects);
+
+      setState(prev => ({
+        ...prev,
+        hasMore,
+        fetching: false,
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/useProjects.tsx" line="87">
+
+---
+
+# fetchProjects Function
+
+The `fetchProjects` function is used within the `loadProjectsBySlug` function to fetch projects from the API. It takes in an API client, organization ID, and options for fetching projects, and returns the fetched projects along with pagination information.
+
+```tsx
+/**
+ * Helper function to actually load projects
+ */
+async function fetchProjects(
+  api: Client,
+  orgId: string,
+  {slugs, search, limit, lastSearch, cursor}: FetchProjectsOptions = {}
+) {
+  const query: {
+    collapse: string[];
+    all_projects?: number;
+    cursor?: typeof cursor;
+    per_page?: number;
+    query?: string;
+  } = {
+    // Never return latestDeploys project property from api
+    collapse: ['latestDeploys', 'unusedFeatures'],
+  };
+
+  if (slugs !== undefined && slugs.length > 0) {
+    query.query = slugs.map(slug => `slug:${slug}`).join(' ');
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/views/insights/common/queries/useDiscover.ts" line="60">
+
+---
+
+# useDiscover Hook
+
+The `useDiscover` hook is used within the `useSpanMetrics` hook to fetch data from the Discover datasets. It takes in options for fetching metrics, a dataset, and a referrer, and returns the fetched data along with other result information.
+
+```typescript
+const useDiscover = <T extends Extract<keyof ResponseType, string>[], ResponseType>(
+  options: UseMetricsOptions<T> = {},
+  dataset: DiscoverDatasets,
+  referrer: string
+) => {
+  const {
+    fields = [],
+    search = undefined,
+    sorts = [],
+    limit,
+    cursor,
+    pageFilters: pageFiltersFromOptions,
+  } = options;
+
+  const pageFilters = usePageFilters();
+
+  const eventView = getEventView(
+    search,
+    fields,
+    sorts,
+    pageFiltersFromOptions ?? pageFilters.selection,
+```
+
+---
+
+</SwmSnippet>
+
+Now, lets zoom into this section of the flow:
+
+```mermaid
+graph TD;
+subgraph static/app/views/insights/common/queries
+  useSpanMetricsSeries:::mainFlowStyle --> useDiscoverSeries:::mainFlowStyle
+end
+subgraph static/app/views/insights/common/queries
+  useDiscoverSeries:::mainFlowStyle --> getSeriesEventView
+end
+subgraph static/app/views/insights/common/queries
+  useDiscoverSeries:::mainFlowStyle --> useWrappedDiscoverTimeseriesQuery:::mainFlowStyle
+end
+subgraph static/app/views/insights/common/queries
+  useWrappedDiscoverTimeseriesQuery:::mainFlowStyle --> qmnfy[...]
+end
+
+classDef mainFlowStyle color:#000000,fill:#7CB9F4
+classDef rootsStyle color:#000000,fill:#00FFF4
+classDef Style1 color:#000000,fill:#00FFAA
+classDef Style2 color:#000000,fill:#FFFF00
+classDef Style3 color:#000000,fill:#AA7CB9
+```
+
+<SwmSnippet path="/static/app/views/insights/common/queries/useDiscoverSeries.ts" line="30">
+
+---
+
+# HTTPDomainSummaryPage Flow
+
+The `useSpanMetricsSeries` function is the starting point of the flow. It calls the `useDiscoverSeries` function with specific parameters, including options, `DiscoverDatasets.SPANS_METRICS`, and a referrer.
+
+```typescript
+export const useSpanMetricsSeries = <Fields extends SpanMetricsProperty[]>(
+  options: UseMetricsSeriesOptions<Fields> = {},
+  referrer: string
+) => {
+  return useDiscoverSeries<Fields>(options, DiscoverDatasets.SPANS_METRICS, referrer);
+};
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/views/insights/common/queries/useDiscoverSeries.ts" line="56">
+
+---
+
+The `useDiscoverSeries` function is the next step in the flow. It takes in options, a dataset, and a referrer as parameters. It uses these parameters to create an `eventView` object using the `getSeriesEventView` function. It then calls the `useWrappedDiscoverTimeseriesQuery` function with the `eventView` object and other parameters. The function also maps the result data to a series and returns the result with the parsed data.
+
+```typescript
+const useDiscoverSeries = <T extends string[]>(
+  options: UseMetricsSeriesOptions<T> = {},
+  dataset: DiscoverDatasets,
+  referrer: string
+) => {
+  const {search = undefined, yAxis = [], interval = undefined} = options;
+
+  const pageFilters = usePageFilters();
+
+  const eventView = getSeriesEventView(
+    search,
+    undefined,
+    pageFilters.selection,
+    yAxis,
+    undefined,
+    dataset
+  );
+
+  if (interval) {
+    eventView.interval = interval;
+  }
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/views/insights/common/queries/getSeriesEventView.tsx" line="12">
+
+---
+
+The `getSeriesEventView` function is used within the `useDiscoverSeries` function to create an `eventView` object. It takes in search parameters, fields, page filters, yAxis, top events, and a dataset as parameters. It uses these parameters to calculate an interval and create an `eventView` object using the `EventView.fromNewQueryWithPageFilters` function.
+
+```tsx
+export function getSeriesEventView(
+  search: MutableSearch | undefined,
+  fields: string[] = [],
+  pageFilters: PageFilters,
+  yAxis: string[],
+  topEvents?: number,
+  dataset?: DiscoverDatasets
+) {
+  // Pick the highest possible interval for the given yAxis selection. Find the ideal interval for each function, then choose the largest one. This results in the lowest granularity, but best performance.
+  const interval = sortBy(
+    yAxis.map(yAxisFunctionName => {
+      const parseResult = parseFunction(yAxisFunctionName);
+
+      if (!parseResult) {
+        return DEFAULT_INTERVAL;
+      }
+
+      return getIntervalForMetricFunction(parseResult.name, pageFilters.datetime);
+    }),
+    result => {
+      return intervalToMilliseconds(result);
+```
+
+---
+
+</SwmSnippet>
+
+Now, lets zoom into this section of the flow:
+
+```mermaid
+graph TD;
+subgraph static/app/utils
+  useWrappedDiscoverTimeseriesQuery:::mainFlowStyle --> useGenericDiscoverQuery:::mainFlowStyle
+end
+subgraph static/app/utils
+  useGenericDiscoverQuery:::mainFlowStyle --> doDiscoverQuery
+end
+subgraph static/app/utils
+  useGenericDiscoverQuery:::mainFlowStyle --> getPayload:::mainFlowStyle
+end
+subgraph static/app/utils
+  doDiscoverQuery --> batchRequest
+end
+subgraph static/app
+  doDiscoverQuery --> requestPromise
+end
+
+classDef mainFlowStyle color:#000000,fill:#7CB9F4
+classDef rootsStyle color:#000000,fill:#00FFF4
+classDef Style1 color:#000000,fill:#00FFAA
+classDef Style2 color:#000000,fill:#FFFF00
+classDef Style3 color:#000000,fill:#AA7CB9
+```
+
+<SwmSnippet path="/static/app/views/insights/common/queries/useSpansQuery.tsx" line="63">
+
+---
+
+# useWrappedDiscoverTimeseriesQuery
+
+The `useWrappedDiscoverTimeseriesQuery` function is a custom hook that wraps the `useGenericDiscoverQuery` function. It takes in an object of properties including `eventView`, `enabled`, `initialData`, `referrer`, `cursor`, and `overriddenRoute`. It uses these properties to construct a request payload and options for the `useGenericDiscoverQuery` function. The result of the `useGenericDiscoverQuery` function is then processed and returned.
+
+```tsx
+export function useWrappedDiscoverTimeseriesQuery<T>({
+  eventView,
+  enabled,
+  initialData,
+  referrer,
+  cursor,
+  overriddenRoute,
+}: {
+  eventView: EventView;
+  cursor?: string;
+  enabled?: boolean;
+  initialData?: any;
+  overriddenRoute?: string;
+  referrer?: string;
+}) {
+  const location = useLocation();
+  const organization = useOrganization();
+  const {isReady: pageFiltersReady} = usePageFilters();
+  const result = useGenericDiscoverQuery<
+    {
+      data: any[];
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/discover/genericDiscoverQuery.tsx" line="419">
+
+---
+
+# useGenericDiscoverQuery
+
+The `useGenericDiscoverQuery` function is a custom hook that uses the `useQuery` hook from the `react-query` library to fetch data from the Discover API. It takes in properties including `orgSlug`, `route`, and `options`, and uses these to construct the API request URL and payload. The `doDiscoverQuery` function is used to make the actual API request.
+
+```tsx
+export function useGenericDiscoverQuery<T, P>(props: Props<T, P>) {
+  const api = useApi();
+  const {orgSlug, route, options} = props;
+  const url = `/organizations/${orgSlug}/${route}/`;
+  const apiPayload = getPayload<T, P>(props);
+
+  const res = useQuery<[T, string | undefined, ResponseMeta<T> | undefined], QueryError>(
+    [route, apiPayload],
+    ({signal: _signal}) =>
+      doDiscoverQuery<T>(api, url, apiPayload, {
+        queryBatching: props.queryBatching,
+        skipAbort: props.skipAbort,
+      }),
+    options
+  );
+
+  return {
+    ...res,
+    data: res.data?.[0] ?? undefined,
+    error: parseError(res.error),
+    statusCode: res.data?.[1] ?? undefined,
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/discover/genericDiscoverQuery.tsx" line="337">
+
+---
+
+# doDiscoverQuery
+
+The `doDiscoverQuery` function is an asynchronous function that makes an API request to the provided URL with the provided parameters. It supports query batching and retry options. If query batching is enabled, it uses the `batchRequest` function to make the request. Otherwise, it makes the request directly using the `api.requestPromise` method.
+
+```tsx
+export async function doDiscoverQuery<T>(
+  api: Client,
+  url: string,
+  params: DiscoverQueryRequestParams,
+  options: {
+    queryBatching?: QueryBatching;
+    retry?: RetryOptions;
+    skipAbort?: boolean;
+  } = {}
+): Promise<[T, string | undefined, ResponseMeta<T> | undefined]> {
+  const {queryBatching, retry, skipAbort} = options;
+  if (queryBatching?.batchRequest) {
+    return queryBatching.batchRequest(api, url, {
+      query: params,
+      includeAllArgs: true,
+    });
+  }
+
+  const baseTimeout = retry?.baseTimeout ?? BASE_TIMEOUT;
+  const timeoutMultiplier = retry?.timeoutMultiplier ?? TIMEOUT_MULTIPLIER;
+  const statusCodes = retry?.statusCodes ?? [];
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/discover/genericDiscoverQuery.tsx" line="386">
+
+---
+
+# getPayload
+
+The `getPayload` function is used to construct the payload for the Discover API request. It takes in properties from the `props` object and uses these to construct the payload. If the `getRequestPayload` function is provided, it uses this to get the payload. Otherwise, it uses the `eventView.getEventsAPIPayload` method.
+
+```tsx
+function getPayload<T, P>(props: Props<T, P>) {
+  const {
+    cursor,
+    limit,
+    noPagination,
+    referrer,
+    getRequestPayload,
+    eventView,
+    location,
+    forceAppendRawQueryString,
+  } = props;
+  const payload = getRequestPayload
+    ? getRequestPayload(props)
+    : eventView.getEventsAPIPayload(location, forceAppendRawQueryString);
+
+  if (cursor !== undefined) {
+    payload.cursor = cursor;
+  }
+  if (limit) {
+    payload.per_page = limit;
+  }
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/utils/performance/contexts/genericQueryBatcher.tsx" line="247">
+
+---
+
+# batchRequest
+
+The `batchRequest` function is used when query batching is enabled in the `doDiscoverQuery` function. It adds the query to the batch context and returns a promise that resolves when the batched request is completed.
+
+```tsx
+  function batchRequest(
+    _: Client,
+    path: string,
+    requestQueryObject: QueryObject
+  ): Promise<any> {
+    const queryPromise = new Promise((resolve, reject) => {
+      const queryDefinition: BatchQueryDefinition = {
+        resolve,
+        reject,
+        transform,
+        batchProperty,
+        path,
+        requestQueryObject,
+        api,
+      };
+      batchContext?.addQuery(queryDefinition, id.current);
+    });
+    return queryPromise;
+  }
+```
+
+---
+
+</SwmSnippet>
+
+<SwmSnippet path="/static/app/api.tsx" line="656">
+
+---
+
+# requestPromise
+
+The `requestPromise` method is used to make an API request and return a promise that resolves with the response data. It supports including all arguments in the response and handles errors by rejecting the promise with a `RequestError` object.
+
+```tsx
+  requestPromise<IncludeAllArgsType extends boolean>(
+    path: string,
+    {
+      includeAllArgs,
+      ...options
+    }: {includeAllArgs?: IncludeAllArgsType} & Readonly<RequestOptions> = {}
+  ): Promise<IncludeAllArgsType extends true ? ApiResult : any> {
+    // Create an error object here before we make any async calls so that we
+    // have a helpful stack trace if it errors
+    //
+    // This *should* get logged to Sentry only if the promise rejection is not handled
+    // (since SDK captures unhandled rejections). Ideally we explicitly ignore rejection
+    // or handle with a user friendly error message
+    const preservedError = new Error('API Request Error');
+
+    return new Promise((resolve, reject) =>
+      this.request(path, {
+        ...options,
+        preservedError,
+        success: (data, textStatus, resp) => {
+          if (includeAllArgs) {
+```
+
+---
+
+</SwmSnippet>
+
+&nbsp;
+
+*This is an auto-generated document by Swimm AI 🌊 and has not yet been verified by a human*
+
+<SwmMeta version="3.0.0" repo-id="Z2l0aHViJTNBJTNBc2VudHJ5LWRlbW8lM0ElM0FTd2ltbS1EZW1v" repo-name="sentry-demo" doc-type="flows"><sup>Powered by [Swimm](/)</sup></SwmMeta>
