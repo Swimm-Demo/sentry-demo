@@ -1,0 +1,11 @@
+{
+  "generator": "docusaurus",
+  "url": "https://swimm-demo.github.io/sentry-demo/",
+  "docs": {
+      "basic-concepts-of-api-serializers.ph6b6r4v.sw.md": "Docs"
+  },
+  "config": {
+      "title": "Sentry Demo",
+      "tagline": "Swimm SSG - Sentry Demo"
+  }
+}
