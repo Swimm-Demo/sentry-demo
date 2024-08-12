@@ -3,9 +3,7 @@
   "url": "https://swimm-demo.github.io/sentry-demo/",
   "docs": {
       "basic-concepts-of-api-serializers.ph6b6r4v.sw.md": "Docs"
-      "actions": {
-        "actions-flow.dip1cve7.sw.md":"Actions"
-      }
+      "actions-flow.dip1cve7.sw.md":"Docs/Actions"
   },
   "config": {
       "title": "Sentry Demo",
